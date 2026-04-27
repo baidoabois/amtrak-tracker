@@ -16,7 +16,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_URL, credentials: true }));
+const corsOrigin = process.env.NODE_ENV === 'production'
+  ? (process.env.CLIENT_URL || true)  // true = allow same origin
+  : process.env.CLIENT_URL || 'http://localhost:3000';
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json());
 
 // Rate limit only auth endpoints to prevent brute force
