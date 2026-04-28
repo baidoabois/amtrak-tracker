@@ -5,7 +5,7 @@
     "buildCommand": "cd frontend && npm install --include=dev && npm run build && cd ../backend && npm install --include=dev"
   },
   "deploy": {
-    "startCommand": "cd backend && node server.js",
+    "startCommand": "cd backend && node --icu-data-dir=node_modules/full-icu server.js",
     "healthcheckPath": "/api/health",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
