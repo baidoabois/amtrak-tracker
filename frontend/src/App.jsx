@@ -6,6 +6,7 @@ import Login from './pages/Login.jsx';
 import Register from './pages/Register.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
+import Schedule from './pages/Schedule.jsx';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+          <Route path="/schedule" element={<Schedule />} />
           <Route path="/admin" element={<AdminRoute><AdminPanel /></AdminRoute>} />
         </Routes>
       </main>

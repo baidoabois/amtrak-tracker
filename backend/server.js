@@ -11,6 +11,7 @@ import subscriptionRoutes from './src/routes/subscriptions.js';
 import userRoutes from './src/routes/users.js';
 import historyRoutes from './src/routes/history.js';
 import { startPoller } from './src/services/poller.js';
+import scheduleRoutes from './src/routes/schedule.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +53,7 @@ app.use('/api/trains', trainRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/history', historyRoutes);
+app.use('/api/schedule', scheduleRoutes);
 
 app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 
