@@ -5,6 +5,46 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOTS_DIR = path.join(__dirname, '../../public/snapshots');
 
+// Shared nav — matches React Navbar exactly (same colors, font sizes, links)
+const NAV_HTML = `
+<nav style="background:#003876;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)">
+  <div style="max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
+    <a href="/" style="display:flex;align-items:center;gap:8px;font-size:1.25rem;font-weight:700;letter-spacing:-.01em;color:#fff;text-decoration:none">
+      <span style="font-size:1.5rem">🚆</span>
+      Amtrak Tracker
+    </a>
+    <div style="display:flex;align-items:center;gap:16px;font-size:.875rem" id="nav-links">
+      <a href="/board"      style="color:#bfdbfe;text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Live Board</a>
+      <a href="/schedule"   style="color:#bfdbfe;text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Search</a>
+      <span id="nav-auth">
+        <a href="/login"    style="color:#bfdbfe;text-decoration:none;margin-right:12px" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Sign In</a>
+        <a href="/register" style="background:#c0392b;color:#fff;padding:4px 12px;border-radius:4px;font-size:.875rem;text-decoration:none">Sign Up</a>
+      </span>
+    </div>
+  </div>
+</nav>
+<script>
+  (function() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.user) return;
+        const el = document.getElementById('nav-auth');
+        const isAdmin = data.user.role === 'admin';
+        el.innerHTML =
+          '<a href="/dashboard" style="color:#bfdbfe;text-decoration:none;margin-right:4px">My Trains</a>'
+          + (isAdmin ? ' <a href="/admin" style="color:#bfdbfe;text-decoration:none;margin-right:4px">Admin</a>' : '')
+          + ' <span style="color:#93c5fd;margin:0 4px">|</span>'
+          + ' <span style="color:#bfdbfe">' + data.user.name + '</span>'
+          + ' <button onclick="doLogout()" style="background:#c0392b;color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:.875rem;cursor:pointer;margin-left:8px">Logout</button>';
+      })
+      .catch(() => {});
+  })();
+  function doLogout() { localStorage.removeItem('token'); location.reload(); }
+</script>`;
+
 function formatTime(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' });
@@ -95,9 +135,6 @@ export function generateTrainHTML(train, generatedAt) {
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;color:#111827}
     a{color:#003876;text-decoration:none} a:hover{text-decoration:underline}
-    nav{background:#003876;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between}
-    nav .brand{font-size:1.1rem;font-weight:700}
-    nav .back{font-size:.85rem;color:#bfdbfe}
     .container{max-width:800px;margin:0 auto;padding:24px 16px}
     .card{background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.08);padding:20px;margin-bottom:20px}
     .header-row{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px}
@@ -133,36 +170,7 @@ export function generateTrainHTML(train, generatedAt) {
   </style>
 </head>
 <body>
-  <nav>
-    <span class="brand">🚆 Amtrak Tracker</span>
-    <div style="display:flex;align-items:center;gap:12px;font-size:.85rem">
-      <a class="back" href="/board">← Live Board</a>
-      <span id="nav-auth">
-        <a href="/login" style="color:#bfdbfe">Sign In</a>
-        <a href="/register" style="background:#c0392b;color:#fff;padding:4px 12px;border-radius:6px;font-size:.8rem;margin-left:8px">Sign Up</a>
-      </span>
-    </div>
-  </nav>
-  <script>
-    (function() {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (!data?.user) return;
-          const el = document.getElementById('nav-auth');
-          el.innerHTML = '<a href="/dashboard" style="color:#bfdbfe">My Trains</a>'
-            + ' <span style="color:#bfdbfe;margin-left:8px">' + data.user.name + '</span>'
-            + ' <button onclick="logout()" style="background:#c0392b;color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;margin-left:8px">Logout</button>';
-        })
-        .catch(() => {});
-    })();
-    function logout() {
-      localStorage.removeItem('token');
-      location.reload();
-    }
-  </script>
+  ${NAV_HTML}
 
   <div class="container">
     <div class="card">
@@ -314,11 +322,6 @@ function generateLiveBoardHTML(trains, generatedAt) {
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;color:#111827}
     a{color:#003876;text-decoration:none} a:hover{text-decoration:underline}
-    nav{background:#003876;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
-    nav .brand{font-size:1.1rem;font-weight:700}
-    nav .links{display:flex;gap:16px;font-size:.85rem;align-items:center}
-    nav .links a{color:#bfdbfe} nav .links a:hover{color:#fff}
-    nav .btn{background:#c0392b;color:#fff;padding:4px 12px;border-radius:6px;font-size:.8rem}
     .container{max-width:1100px;margin:0 auto;padding:24px 16px}
     h1{font-size:1.6rem;font-weight:800;color:#003876}
     .subtitle{color:#9ca3af;font-size:.82rem;margin-top:4px}
@@ -349,36 +352,7 @@ function generateLiveBoardHTML(trains, generatedAt) {
   </style>
 </head>
 <body>
-  <nav>
-    <span class="brand">🚆 Amtrak Tracker</span>
-    <div class="links">
-      <a href="/board">Live Board</a>
-      <a href="/dashboard">My Trains</a>
-      <span id="nav-auth">
-        <a href="/login">Sign In</a>
-        <a href="/register" class="btn">Sign Up</a>
-      </span>
-    </div>
-  </nav>
-  <script>
-    (function() {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
-        .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (!data?.user) return;
-          const el = document.getElementById('nav-auth');
-          el.innerHTML = '<span style="color:#bfdbfe">' + data.user.name + '</span>'
-            + ' <button onclick="logout()" style="background:#c0392b;color:#fff;border:none;padding:4px 12px;border-radius:6px;font-size:.8rem;cursor:pointer;margin-left:8px">Logout</button>';
-        })
-        .catch(() => {});
-    })();
-    function logout() {
-      localStorage.removeItem('token');
-      location.reload();
-    }
-  </script>
+  ${NAV_HTML}
 
   <div class="container">
     <div style="margin-bottom:20px">
