@@ -59,6 +59,16 @@ function StationInput({ label, value, onChange, stations }) {
   );
 }
 
+function tzLabel(ianaOrCode) {
+  if (!ianaOrCode) return '';
+  const map = {
+    'America/Los_Angeles': 'PT', 'America/Denver': 'MT',
+    'America/Chicago': 'CT', 'America/New_York': 'ET',
+    'America/Phoenix': 'MT',
+  };
+  return map[ianaOrCode] || ianaOrCode.split('/').pop().replace(/_/g, ' ');
+}
+
 function duration(mins) {
   if (!mins || mins <= 0) return '';
   const h = Math.floor(mins / 60);
@@ -181,6 +191,7 @@ export default function Schedule() {
                     <div className="text-center">
                       <div className="text-lg font-bold text-gray-800">{r.departureFmt}</div>
                       <div className="text-xs text-gray-400">{r.fromStopName}</div>
+                      {r.fromTz && <div className="text-xs text-gray-300 font-mono">{tzLabel(r.fromTz)}</div>}
                     </div>
 
                     <div className="text-center">
@@ -195,6 +206,7 @@ export default function Schedule() {
                     <div className="text-center">
                       <div className="text-lg font-bold text-gray-800">{r.arrivalFmt}</div>
                       <div className="text-xs text-gray-400">{r.toStopName}</div>
+                      {r.toTz && <div className="text-xs text-gray-300 font-mono">{tzLabel(r.toTz)}</div>}
                     </div>
                   </div>
 

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import AdmZip from 'adm-zip';
+import { fetchStations } from './amtrak.js';
 
 const GTFS_URL = 'https://content.amtrak.com/content/gtfs/GTFS.zip';
 const REFRESH_MS = 7 * 24 * 60 * 60 * 1000; // refresh weekly
@@ -76,9 +77,13 @@ export async function loadGTFS() {
   });
 
   const zip = new AdmZip(Buffer.from(response.data));
+  const OPTIONAL = new Set(['calendar_dates.txt']);
   const read = (name) => {
     const entry = zip.getEntry(name);
-    if (!entry) { console.warn(`[GTFS] Missing file: ${name}`); return []; }
+    if (!entry) {
+      if (!OPTIONAL.has(name)) console.warn(`[GTFS] Missing file: ${name}`);
+      return [];
+    }
     return parseCSV(entry.getData().toString('utf8'));
   };
 
@@ -127,9 +132,18 @@ export async function loadGTFS() {
   return gtfsCache;
 }
 
+const AMTRAK_TZ = { P: 'America/Los_Angeles', M: 'America/Denver', C: 'America/Chicago', E: 'America/New_York' };
+
+function resolveStationTz(gtfsTz, amtrakStations, code) {
+  if (gtfsTz) return gtfsTz;
+  const s = amtrakStations.find(s => s.code === code);
+  return s?.tz ? (AMTRAK_TZ[s.tz] || '') : '';
+}
+
 // ── Schedule search ──────────────────────────────────────────────────────────
 export async function searchSchedule(fromCode, toCode, date) {
-  const { stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop } = await loadGTFS();
+  const [{ stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop }, amtrakStations] =
+    await Promise.all([loadGTFS(), fetchStations().catch(() => [])]);
 
   // Trips that serve both stops
   const fromTrips = new Set(tripsByStop[fromCode] || []);
@@ -154,6 +168,9 @@ export async function searchSchedule(fromCode, toCode, date) {
     const arrMins = gtfsTimeToMins(toSt.arrival_time);
     const durationMins = arrMins - depMins + (arrMins < depMins ? 24 * 60 : 0);
 
+    const fromTz = resolveStationTz(stopMap[fromCode]?.stop_timezone, amtrakStations, fromCode);
+    const toTz   = resolveStationTz(stopMap[toCode]?.stop_timezone,   amtrakStations, toCode);
+
     results.push({
       tripId,
       trainNumber: trip.trip_short_name || trip.trip_id,
@@ -165,6 +182,8 @@ export async function searchSchedule(fromCode, toCode, date) {
       durationMins,
       fromStopName: stopMap[fromCode]?.stop_name || fromCode,
       toStopName: stopMap[toCode]?.stop_name || toCode,
+      fromTz,
+      toTz,
     });
   }
 

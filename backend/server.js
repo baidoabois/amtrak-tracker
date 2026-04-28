@@ -18,6 +18,7 @@ import TrainHistory from './src/models/TrainHistory.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
+app.set('trust proxy', 1); // Railway sits behind a proxy
 
 const corsOrigin = process.env.NODE_ENV === 'production'
   ? (process.env.CLIENT_URL || true)  // true = allow same origin
