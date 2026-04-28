@@ -122,10 +122,35 @@ export async function fetchStations() {
 
 // ── Train helpers ────────────────────────────────────────────────────────────
 
+const TZ_NAMES = { P: 'America/Los_Angeles', M: 'America/Denver', C: 'America/Chicago', E: 'America/New_York' };
+
+// Amtrak sends times with no UTC offset — they are local to the station's timezone.
+// new Date(str) gives wrong results on UTC servers (Railway). We correct by computing
+// the actual UTC offset for the station timezone at that moment via Intl.DateTimeFormat.
+function parseLocalTime(timeStr, tzCode) {
+  if (!timeStr) return null;
+  try {
+    if (/Z$|[+-]\d{2}:?\d{2}$/.test(timeStr)) return new Date(timeStr).toISOString();
+    const tzName = TZ_NAMES[tzCode] || 'America/Los_Angeles';
+    const naive = new Date(timeStr + 'Z'); // parse as UTC (naive)
+    if (isNaN(naive)) return null;
+    const parts = {};
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: tzName, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(naive).forEach(({ type, value }) => { parts[type] = value; });
+    const h = parts.hour === '24' ? 0 : +parts.hour;
+    const tzDate = new Date(Date.UTC(+parts.year, +parts.month - 1, +parts.day, h, +parts.minute, +parts.second));
+    return new Date(naive.getTime() + (naive - tzDate)).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 function parseStationEntry(raw) {
   if (!raw) return null;
 
-  // postdep/postarr are actual datetime strings when the event happened, or undefined if not yet
   const hasDeparted = raw.postdep && raw.postdep !== 'NO';
   const hasArrived  = raw.postarr && raw.postarr !== 'NO';
 
@@ -133,14 +158,8 @@ function parseStationEntry(raw) {
   if (hasDeparted) status = 'departed';
   else if (hasArrived) status = 'arrived';
 
-  const toUTC = (localTime) => {
-    if (!localTime) return null;
-    try {
-      return new Date(localTime).toISOString();
-    } catch {
-      return null;
-    }
-  };
+  const tz = raw.tz;
+  const toUTC = (localTime) => parseLocalTime(localTime, tz);
 
   return {
     code: raw.code,
