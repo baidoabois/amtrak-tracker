@@ -117,6 +117,8 @@ function stationRow(s) {
 function statusBadge(train) {
   if (train.serviceDisrupted)
     return `<span class="badge badge-red">⚠ Disrupted</span>`;
+  if (train.state === 'Completed')
+    return `<span class="badge badge-complete">✓ Complete</span>`;
   if (train.delayMinutes >= 15)
     return `<span class="badge badge-yellow">🕐 ${train.delayMinutes} min late</span>`;
   return `<span class="badge badge-green">✓ On Time</span>`;
@@ -144,6 +146,7 @@ export function generateTrainHTML(train, generatedAt) {
     .meta strong{color:#6b7280}
     .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.8rem;font-weight:600;margin-top:8px}
     .badge-green{background:#dcfce7;color:#15803d}
+    .badge-complete{background:#bbf7d0;color:#14532d;font-weight:700}
     .badge-yellow{background:#fef9c3;color:#92400e}
     .badge-red{background:#fee2e2;color:#b91c1c}
     .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.75rem;color:#6b7280;margin-bottom:14px;margin-top:10px}
