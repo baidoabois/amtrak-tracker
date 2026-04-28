@@ -52,21 +52,17 @@ const TZ_MAP = {
   E: 'America/New_York',
 };
 
-function formatTime(iso, tz) {
-  if (!iso) return '—';
-  const timeZone = TZ_MAP[tz] || 'America/Los_Angeles';
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone });
-}
-
 const TZ_LABELS = { P: 'PT', M: 'MT', C: 'CT', E: 'ET' };
 
+// Times are formatted client-side so they are never affected by server ICU/timezone config.
+// stationRow embeds raw ISO strings as data-* attributes; formatStationTimes() in the page
+// script reads them and fills the .times span for each row.
 function stationRow(s, prevTz) {
   const isDeparted = s.status === 'departed';
   const isArrived  = s.status === 'arrived';
   const isEnroute  = s.status === 'enroute';
   const isPast     = isDeparted || isArrived;
 
-  // For past stations use actual time; for future/enroute use estimated
   const realArr = isPast ? (s.actualArrival  || s.estimatedArrival)  : s.estimatedArrival;
   const realDep = isPast ? (s.actualDeparture || s.estimatedDeparture) : s.estimatedDeparture;
 
@@ -89,41 +85,31 @@ function stationRow(s, prevTz) {
     : isArrived             ? `<span class="pill pill-green">✓ Arrived</span>`
     :                         `<span class="pill pill-gray">Scheduled</span>`;
 
-  const schedArr = formatTime(s.scheduledArrival, s.tz);
-  const estArr   = formatTime(realArr, s.tz);
-  const schedDep = formatTime(s.scheduledDeparture, s.tz);
-  const estDep   = formatTime(realDep, s.tz);
-
-  function timePart(label, sched, est, delay) {
-    if (!sched) return '';
-    const delayStr = delay !== 0 ? ` (${delay > 0 ? '+' : ''}${delay}m)` : '';
-    const cls = delay > 5 ? 'late' : delay < 0 ? 'early' : '';
-    const arrow = est && est !== '—'
-      ? ` <span class="${cls}">&rarr; ${est}${delayStr}</span>`
-      : '';
-    return `${label}: <strong>${sched}</strong>${arrow}`;
-  }
-
-  const arrLine = timePart('Arr', schedArr, estArr, arrDelay);
-  const depLine = timePart('Dep', schedDep, estDep, depDelay);
-
   const tzDivider = (prevTz && s.tz && prevTz !== s.tz)
     ? `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;padding:0 8px"><div style="flex:1;height:1px;background:#e5e7eb"></div><span style="font-size:.7rem;color:#6b7280;font-weight:600;white-space:nowrap">${TZ_LABELS[prevTz] || prevTz} → ${TZ_LABELS[s.tz] || s.tz}</span><div style="flex:1;height:1px;background:#e5e7eb"></div></div>`
     : '';
 
+  // Embed ISO timestamps and delay values as data attributes; client JS formats them
   return `${tzDivider}
-    <div class="station-row" style="background:${rowBg}">
+    <div class="station-row" style="background:${rowBg}"
+      data-tz="${s.tz || 'P'}"
+      data-sched-arr="${s.scheduledArrival || ''}"
+      data-sched-dep="${s.scheduledDeparture || ''}"
+      data-real-arr="${realArr || ''}"
+      data-real-dep="${realDep || ''}"
+      data-arr-delay="${arrDelay}"
+      data-dep-delay="${depDelay}">
       <div class="dot-col">
         <span class="dot" style="background:${dotColor}${isEnroute ? ';box-shadow:0 0 0 3px #bfdbfe' : ''}"></span>
       </div>
       <div class="station-body">
         <div class="station-top">
           <span class="station-name" style="color:${nameColor};font-weight:${nameFw}${isEnroute ? ';font-size:1rem' : ''}">
-            ${s.station?.name && s.code ? `<span style="color:#111827;font-weight:400">(${s.code})</span> ` : ''}${s.station?.name || s.code}${s.bus ? ' <span class="bus">(Bus)</span>' : ''}${s.tz ? ` <span style="font-size:.65rem;color:#9ca3af;font-weight:400">${s.tz}T</span>` : ''}
+            ${s.station?.name && s.code ? `<span style="color:#111827;font-weight:400">(${s.code})</span> ` : ''}${s.station?.name || s.code}${s.bus ? ' <span class="bus">(Bus)</span>' : ''}${s.tz ? ` <span style="font-size:.65rem;color:#9ca3af;font-weight:400">${TZ_LABELS[s.tz] || s.tz}</span>` : ''}
           </span>
           ${pill}
         </div>
-        <div class="times">${[arrLine, depLine].filter(Boolean).join(' &nbsp;|&nbsp; ')}</div>
+        <div class="times">—</div>
       </div>
     </div>`;
 }
@@ -225,6 +211,39 @@ export function generateTrainHTML(train, generatedAt) {
 
   <script>
     (function() {
+      const TZ_MAP = { P:'America/Los_Angeles', M:'America/Denver', C:'America/Chicago', E:'America/New_York' };
+
+      function fmtTime(iso, tz) {
+        if (!iso) return null;
+        return new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', timeZone: TZ_MAP[tz] || TZ_MAP.P });
+      }
+
+      document.querySelectorAll('.station-row[data-tz]').forEach(row => {
+        const tz       = row.dataset.tz;
+        const schedArr = row.dataset.schedArr;
+        const schedDep = row.dataset.schedDep;
+        const realArr  = row.dataset.realArr;
+        const realDep  = row.dataset.realDep;
+        const arrDelay = parseInt(row.dataset.arrDelay, 10);
+        const depDelay = parseInt(row.dataset.depDelay, 10);
+
+        function timePart(label, sched, real, delay) {
+          const s = fmtTime(sched, tz);
+          if (!s) return '';
+          const delayStr = delay !== 0 ? ' (' + (delay > 0 ? '+' : '') + delay + 'm)' : '';
+          const cls = delay > 5 ? 'late' : delay < 0 ? 'early' : '';
+          const r = fmtTime(real, tz);
+          const arrow = r && r !== s ? ' <span class="' + cls + '">&rarr; ' + r + delayStr + '</span>' : '';
+          return label + ': <strong>' + s + '</strong>' + arrow;
+        }
+
+        const parts = [
+          timePart('Arr', schedArr, realArr, arrDelay),
+          timePart('Dep', schedDep, realDep, depDelay),
+        ].filter(Boolean);
+        row.querySelector('.times').innerHTML = parts.join(' &nbsp;|&nbsp; ') || '—';
+      });
+
       const fmt = (d) => d.toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
       const snap = new Date('${new Date(generatedAt).toISOString()}');
       document.getElementById('gen-time').textContent  = fmt(snap);
