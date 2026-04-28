@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SNAPSHOTS_DIR = path.join(__dirname, '../../public/snapshots');
 
 // Shared nav — matches React Navbar exactly (same colors, font sizes, links)
-const NAV_HTML = `
+export const NAV_HTML = `
 <nav style="background:#003876;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)">
   <div style="max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
     <a href="/" style="display:flex;align-items:center;gap:8px;font-size:1.25rem;font-weight:700;letter-spacing:-.01em;color:#fff;text-decoration:none">
@@ -45,12 +45,22 @@ const NAV_HTML = `
   function doLogout() { localStorage.removeItem('token'); location.reload(); }
 </script>`;
 
-function formatTime(iso) {
+const TZ_MAP = {
+  P: 'America/Los_Angeles',
+  M: 'America/Denver',
+  C: 'America/Chicago',
+  E: 'America/New_York',
+};
+
+function formatTime(iso, tz) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+  const timeZone = TZ_MAP[tz] || 'America/Los_Angeles';
+  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone });
 }
 
-function stationRow(s) {
+const TZ_LABELS = { P: 'PT', M: 'MT', C: 'CT', E: 'ET' };
+
+function stationRow(s, prevTz) {
   const isDeparted = s.status === 'departed';
   const isArrived  = s.status === 'arrived';
   const isEnroute  = s.status === 'enroute';
@@ -79,10 +89,10 @@ function stationRow(s) {
     : isArrived             ? `<span class="pill pill-green">✓ Arrived</span>`
     :                         `<span class="pill pill-gray">Scheduled</span>`;
 
-  const schedArr = formatTime(s.scheduledArrival);
-  const estArr   = formatTime(realArr);
-  const schedDep = formatTime(s.scheduledDeparture);
-  const estDep   = formatTime(realDep);
+  const schedArr = formatTime(s.scheduledArrival, s.tz);
+  const estArr   = formatTime(realArr, s.tz);
+  const schedDep = formatTime(s.scheduledDeparture, s.tz);
+  const estDep   = formatTime(realDep, s.tz);
 
   function timePart(label, sched, est, delay) {
     if (!sched) return '';
@@ -97,7 +107,11 @@ function stationRow(s) {
   const arrLine = timePart('Arr', schedArr, estArr, arrDelay);
   const depLine = timePart('Dep', schedDep, estDep, depDelay);
 
-  return `
+  const tzDivider = (prevTz && s.tz && prevTz !== s.tz)
+    ? `<div style="display:flex;align-items:center;gap:8px;margin:4px 0;padding:0 8px"><div style="flex:1;height:1px;background:#e5e7eb"></div><span style="font-size:.7rem;color:#6b7280;font-weight:600;white-space:nowrap">${TZ_LABELS[prevTz] || prevTz} → ${TZ_LABELS[s.tz] || s.tz}</span><div style="flex:1;height:1px;background:#e5e7eb"></div></div>`
+    : '';
+
+  return `${tzDivider}
     <div class="station-row" style="background:${rowBg}">
       <div class="dot-col">
         <span class="dot" style="background:${dotColor}${isEnroute ? ';box-shadow:0 0 0 3px #bfdbfe' : ''}"></span>
@@ -105,7 +119,7 @@ function stationRow(s) {
       <div class="station-body">
         <div class="station-top">
           <span class="station-name" style="color:${nameColor};font-weight:${nameFw}${isEnroute ? ';font-size:1rem' : ''}">
-            ${s.station?.name && s.code ? `<span style="color:#111827;font-weight:400">(${s.code})</span> ` : ''}${s.station?.name || s.code}${s.bus ? ' <span class="bus">(Bus)</span>' : ''}
+            ${s.station?.name && s.code ? `<span style="color:#111827;font-weight:400">(${s.code})</span> ` : ''}${s.station?.name || s.code}${s.bus ? ' <span class="bus">(Bus)</span>' : ''}${s.tz ? ` <span style="font-size:.65rem;color:#9ca3af;font-weight:400">${s.tz}T</span>` : ''}
           </span>
           ${pill}
         </div>
@@ -125,7 +139,6 @@ function statusBadge(train) {
 }
 
 export function generateTrainHTML(train, generatedAt) {
-  const genTime = new Date(generatedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -187,7 +200,7 @@ export function generateTrainHTML(train, generatedAt) {
         <div style="text-align:right">
           <div class="meta">State: <strong>${train.state}</strong></div>
           <div class="meta">Speed: <strong>${Math.round(train.velocity || 0)} mph</strong></div>
-          <div class="meta">Generated: <strong>${genTime} PST</strong></div>
+          <div class="meta">Updated: <strong id="gen-time">—</strong></div>
           <div class="meta" style="margin-top:8px;font-size:.7rem;color:#d1d5db">Page refreshes every 2 min</div>
         </div>
       </div>
@@ -203,15 +216,20 @@ export function generateTrainHTML(train, generatedAt) {
       </div>
       ${train.stations?.length === 0
         ? '<p style="color:#9ca3af;font-size:.85rem">No station data available.</p>'
-        : `<div class="track"><div class="track-line"></div>${(train.stations || []).map(stationRow).join('')}</div>`
+        : `<div class="track"><div class="track-line"></div>${(train.stations || []).map((s, i, arr) => stationRow(s, arr[i - 1]?.tz)).join('')}</div>`
       }
     </div>
   </div>
 
-  <div class="generated">Page snapshot generated at ${genTime} PST &mdash; auto-refreshes every 2 minutes</div>
+  <div class="generated">Checked: <span id="check-time"></span> &mdash; auto-refreshes every 2 minutes</div>
 
   <script>
-    // Auto-reload the page every 2 minutes to get the fresh snapshot
+    (function() {
+      const fmt = (d) => d.toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      const snap = new Date('${new Date(generatedAt).toISOString()}');
+      document.getElementById('gen-time').textContent  = fmt(snap);
+      document.getElementById('check-time').textContent = fmt(new Date());
+    })();
     setTimeout(() => location.reload(), 120000);
   </script>
 </body>
@@ -234,7 +252,6 @@ export async function writeTrainSnapshots(trains, generatedAt) {
 }
 
 function generateLiveBoardHTML(trains, generatedAt) {
-  const genTime = new Date(generatedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
 
   const total     = trains.length;
   const onTime    = trains.filter(t => !t.serviceDisrupted && t.delayMinutes < 15).length;
@@ -360,7 +377,7 @@ function generateLiveBoardHTML(trains, generatedAt) {
   <div class="container">
     <div style="margin-bottom:20px">
       <h1>Live Train Board</h1>
-      <div class="subtitle">Generated: ${genTime} PST — auto-refreshes every 2 minutes</div>
+      <div class="subtitle">Generated: <span id="gen-time">—</span> — auto-refreshes every 2 minutes</div>
     </div>
 
     <div class="stats">
@@ -391,9 +408,16 @@ function generateLiveBoardHTML(trains, generatedAt) {
     <div id="routes">${routeHTML}</div>
   </div>
 
-  <div class="generated">Snapshot generated at ${genTime} PST</div>
+  <div class="generated">Checked: <span id="check-time"></span> &mdash; auto-refreshes every 2 minutes</div>
 
   <script>
+    (function() {
+      const fmt = (d) => d.toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+      const snap = new Date('${new Date(generatedAt).toISOString()}');
+      document.getElementById('gen-time').textContent   = fmt(snap);
+      document.getElementById('check-time').textContent = fmt(new Date());
+    })();
+
     let activeFilter = 'all';
 
     // Embed train data for client-side filtering

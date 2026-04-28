@@ -11,6 +11,7 @@ import subscriptionRoutes from './src/routes/subscriptions.js';
 import userRoutes from './src/routes/users.js';
 import historyRoutes from './src/routes/history.js';
 import { startPoller } from './src/services/poller.js';
+import { NAV_HTML } from './src/services/staticGen.js';
 import scheduleRoutes from './src/routes/schedule.js';
 import TrainHistory from './src/models/TrainHistory.js';
 
@@ -58,9 +59,10 @@ app.get('/trains/:number', async (req, res) => {
     } catch { /* non-fatal */ }
 
     const num = req.params.number;
-    const fmtTime = (iso) => {
+    const TZ_MAP = { P: 'America/Los_Angeles', M: 'America/Denver', C: 'America/Chicago', E: 'America/New_York' };
+    const fmtTime = (iso, tz) => {
       if (!iso) return '—';
-      return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Los_Angeles' });
+      return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: TZ_MAP[tz] || 'America/Los_Angeles' });
     };
     const fmtDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : null;
 
@@ -75,7 +77,7 @@ app.get('/trains/:number', async (req, res) => {
       const dotColor = isPast && wasLate ? '#ef4444' : isPast ? '#22c55e' : '#d1d5db';
       const nameColor = isPast && wasLate ? '#b91c1c' : isPast ? '#15803d' : '#9ca3af';
       const delayTag = delay === null ? '' : delay > 5 ? `<span style="color:#dc2626;font-weight:700;font-size:.7rem"> +${delay}m</span>` : delay < -1 ? `<span style="color:#16a34a;font-size:.7rem"> ${delay}m</span>` : '';
-      const timeStr = actDep ? `<span style="color:#374151;font-size:.75rem">Dep: ${fmtTime(schedDep)}${actDep && actDep !== schedDep ? ` → ${fmtTime(actDep)}` : ''}${delayTag}</span>` : s.scheduledArrival ? `<span style="color:#374151;font-size:.75rem">Arr: ${fmtTime(s.scheduledArrival)}</span>` : '';
+      const timeStr = actDep ? `<span style="color:#374151;font-size:.75rem">Dep: ${fmtTime(schedDep, s.tz)}${actDep && actDep !== schedDep ? ` → ${fmtTime(actDep, s.tz)}` : ''}${delayTag}</span>` : s.scheduledArrival ? `<span style="color:#374151;font-size:.75rem">Arr: ${fmtTime(s.scheduledArrival, s.tz)}</span>` : '';
       return `<div style="display:flex;gap:10px;padding:8px 6px;border-radius:6px;background:${isPast && wasLate ? '#fef2f2' : isPast ? '#f0fdf4' : 'transparent'}">
         <div style="width:20px;display:flex;justify-content:center;padding-top:4px">
           <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};display:inline-block"></span>
@@ -110,17 +112,7 @@ app.get('/trains/:number', async (req, res) => {
   </style>
 </head>
 <body>
-  <nav style="background:#003876;color:#fff;box-shadow:0 2px 8px rgba(0,0,0,.15)">
-    <div style="max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;justify-content:space-between">
-      <a href="/" style="display:flex;align-items:center;gap:8px;font-size:1.25rem;font-weight:700;color:#fff;text-decoration:none">
-        <span style="font-size:1.5rem">🚆</span> Amtrak Tracker
-      </a>
-      <div style="display:flex;gap:16px;font-size:.875rem">
-        <a href="/board"    style="color:#bfdbfe">Live Board</a>
-        <a href="/schedule" style="color:#bfdbfe">Search</a>
-      </div>
-    </div>
-  </nav>
+  ${NAV_HTML}
 
   <div style="max-width:800px;margin:0 auto;padding:24px 16px">
 
