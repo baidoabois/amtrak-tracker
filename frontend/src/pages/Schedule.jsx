@@ -59,6 +59,13 @@ function StationInput({ label, value, onChange, stations }) {
   );
 }
 
+function fmtTime(iso, ianaOrCode) {
+  if (!iso || !ianaOrCode) return '—';
+  return new Date(iso).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', timeZone: ianaOrCode,
+  });
+}
+
 function tzLabel(ianaOrCode) {
   if (!ianaOrCode) return '';
   const map = {
@@ -189,7 +196,7 @@ export default function Schedule() {
 
                   <div className="flex items-center gap-6">
                     <div className="text-center">
-                      <div className="text-lg font-bold text-gray-800">{r.departureFmt}</div>
+                      <div className="text-lg font-bold text-gray-800">{fmtTime(r.departureISO, r.fromTz)}</div>
                       <div className="text-xs text-gray-400">{r.fromStopName}</div>
                       {r.fromTz && <div className="text-xs text-gray-300 font-mono">{tzLabel(r.fromTz)}</div>}
                     </div>
@@ -204,7 +211,7 @@ export default function Schedule() {
                     </div>
 
                     <div className="text-center">
-                      <div className="text-lg font-bold text-gray-800">{r.arrivalFmt}</div>
+                      <div className="text-lg font-bold text-gray-800">{fmtTime(r.arrivalISO, r.toTz)}</div>
                       <div className="text-xs text-gray-400">{r.toStopName}</div>
                       {r.toTz && <div className="text-xs text-gray-300 font-mono">{tzLabel(r.toTz)}</div>}
                     </div>

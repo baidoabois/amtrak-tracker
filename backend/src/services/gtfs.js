@@ -49,14 +49,35 @@ function isServiceActive(serviceId, dateStr, calMap, calDateMap) {
   return cal[dow] === '1';
 }
 
-// ── Parse GTFS time (may exceed 24:00) → display string ─────────────────────
-export function formatGTFSTime(t) {
-  if (!t) return '—';
-  const [hRaw, m] = t.split(':');
-  const h = parseInt(hRaw, 10) % 24;
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
+// ── Convert GTFS time string + date → UTC ISO string ────────────────────────
+// GTFS times are in the agency timezone (America/New_York for Amtrak).
+// We convert to UTC so the frontend can re-format in any station timezone.
+function gtfsTimeToISO(timeStr, dateStr, agencyTz) {
+  if (!timeStr || !dateStr) return null;
+  try {
+    const [hRaw, mm, ss] = timeStr.split(':').map(Number);
+    const dayOffset = Math.floor(hRaw / 24);
+    const h = hRaw % 24;
+    // Advance the base date if time exceeds 24h (next-day arrival)
+    const base = new Date(dateStr + 'T12:00:00Z');
+    base.setUTCDate(base.getUTCDate() + dayOffset);
+    const adjDate = base.toISOString().slice(0, 10);
+    const pad = n => String(n).padStart(2, '0');
+    const localStr = `${adjDate}T${pad(h)}:${pad(mm)}:${pad(ss || 0)}`;
+    // Parse as UTC naively, then correct for agency offset
+    const naive = new Date(localStr + 'Z');
+    const parts = {};
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: agencyTz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(naive).forEach(({ type, value }) => { parts[type] = value; });
+    const hh = parts.hour === '24' ? 0 : +parts.hour;
+    const tzDate = new Date(Date.UTC(+parts.year, +parts.month - 1, +parts.day, hh, +parts.minute, +parts.second));
+    return new Date(naive.getTime() + (naive - tzDate)).toISOString();
+  } catch {
+    return null;
+  }
 }
 
 // Returns minutes since midnight (handles >24h times)
@@ -93,6 +114,7 @@ export async function loadGTFS() {
   const routes       = read('routes.txt');
   const calendar     = read('calendar.txt');
   const calDates     = read('calendar_dates.txt');
+  const agency       = read('agency.txt');
 
   // Index maps
   const stopMap    = Object.fromEntries(stops.map(s => [s.stop_id, s]));
@@ -126,7 +148,8 @@ export async function loadGTFS() {
     }
   }
 
-  gtfsCache = { stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop, stops };
+  const agencyTz = agency[0]?.agency_timezone || 'America/New_York';
+  gtfsCache = { stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop, stops, agencyTz };
   lastLoaded = Date.now();
   console.log(`[GTFS] Loaded: ${stops.length} stops, ${trips.length} trips, ${stopTimes.length} stop_times`);
   return gtfsCache;
@@ -142,7 +165,7 @@ function resolveStationTz(gtfsTz, amtrakStations, code) {
 
 // ── Schedule search ──────────────────────────────────────────────────────────
 export async function searchSchedule(fromCode, toCode, date) {
-  const [{ stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop }, amtrakStations] =
+  const [{ stopMap, routeMap, tripMap, calMap, calDateMap, stopTimesByTrip, tripsByStop, agencyTz }, amtrakStations] =
     await Promise.all([loadGTFS(), fetchStations().catch(() => [])]);
 
   // Trips that serve both stops
@@ -175,10 +198,8 @@ export async function searchSchedule(fromCode, toCode, date) {
       tripId,
       trainNumber: trip.trip_short_name || trip.trip_id,
       routeName: route?.route_long_name || trip.trip_headsign || '',
-      scheduledDeparture: fromSt.departure_time,
-      scheduledArrival: toSt.arrival_time,
-      departureFmt: formatGTFSTime(fromSt.departure_time),
-      arrivalFmt: formatGTFSTime(toSt.arrival_time),
+      departureISO: gtfsTimeToISO(fromSt.departure_time, date, agencyTz),
+      arrivalISO:   gtfsTimeToISO(toSt.arrival_time,     date, agencyTz),
       durationMins,
       fromStopName: stopMap[fromCode]?.stop_name || fromCode,
       toStopName: stopMap[toCode]?.stop_name || toCode,
