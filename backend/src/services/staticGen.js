@@ -477,13 +477,23 @@ function generateLiveBoardHTML(trains, generatedAt) {
         : isDelayed
         ? `<span class="sbadge sbadge-yellow">${t.delayMinutes}m late</span>`
         : `<span class="sbadge sbadge-green">On Time</span>`;
+      const stationCoordsJson = JSON.stringify(
+        (t.stations || []).filter(s => s.station && s.station.lat && s.station.lon).map(s => ({
+          code: s.code, name: s.station.name || s.code, lat: s.station.lat, lon: s.station.lon,
+        }))
+      );
       return `
         <tr style="background:${rowBg};border-bottom:1px solid #f3f4f6">
           <td class="td"><a href="/trains/${t.number}" style="color:#003876;font-family:monospace;font-weight:700">${t.number}</a></td>
           <td class="td">${t.route || '—'}</td>
           <td class="td">${badge}</td>
           <td class="td" style="color:#6b7280;font-size:.8rem">${t.state}</td>
-          <td class="td tdtrunc" style="color:#9ca3af;font-size:.8rem">${t.statusMsg || '—'}</td>
+          <td class="td tdtrunc" style="color:#9ca3af;font-size:.8rem"
+            data-lat="${t.lat || 0}" data-lon="${t.lon || 0}"
+            data-heading="${t.heading || ''}" data-speed="${Math.round(t.velocity || 0)}"
+            data-state="${t.state || ''}" data-msg="${(t.statusMsg || '').replace(/"/g, '&quot;')}"
+            data-stations='${stationCoordsJson}'
+          >${t.statusMsg || '—'}</td>
           <td class="td" style="font-size:.8rem">${Math.round(t.velocity || 0)} mph</td>
         </tr>`;
     }).join('');
@@ -673,6 +683,48 @@ function generateLiveBoardHTML(trains, generatedAt) {
           + (t.statusMsg ? '<br><em style="font-size:.8em;color:#6b7280">' + t.statusMsg + '</em>' : '');
 
         L.marker([t.lat, t.lon], { icon }).addTo(map).bindPopup(popup);
+      });
+    })();
+
+    // ── Populate position text in Message column ──────────────────────────────
+    (function() {
+      function toRad(d) { return d * Math.PI / 180; }
+      function distMi(la1, lo1, la2, lo2) {
+        const R = 3958.8, dLat = toRad(la2-la1), dLon = toRad(lo2-lo1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(la1))*Math.cos(toRad(la2))*Math.sin(dLon/2)**2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      }
+      function cardinalFrom(la1, lo1, la2, lo2) {
+        const dLon = toRad(lo2-lo1);
+        const y = Math.sin(dLon)*Math.cos(toRad(la2));
+        const x = Math.cos(toRad(la1))*Math.sin(toRad(la2)) - Math.sin(toRad(la1))*Math.cos(toRad(la2))*Math.cos(dLon);
+        const deg = (Math.atan2(y,x)*180/Math.PI+360)%360;
+        return ['N','NE','E','SE','S','SW','W','NW'][Math.round(deg/45)%8];
+      }
+
+      document.querySelectorAll('td[data-lat]').forEach(td => {
+        const lat = parseFloat(td.dataset.lat);
+        const lon = parseFloat(td.dataset.lon);
+        const state = td.dataset.state;
+        const speed = parseInt(td.dataset.speed, 10);
+        const heading = td.dataset.heading || '';
+        const msg = td.dataset.msg;
+        if (!lat || !lon || state !== 'Active') return;
+        let stations;
+        try { stations = JSON.parse(td.dataset.stations); } catch { return; }
+        if (!stations.length) return;
+        let nearest = null, minDist = Infinity;
+        stations.forEach(s => {
+          const d = distMi(lat, lon, s.lat, s.lon);
+          if (d < minDist) { minDist = d; nearest = s; }
+        });
+        if (!nearest) return;
+        const dir = cardinalFrom(nearest.lat, nearest.lon, lat, lon);
+        const headDir = heading.replace(/[^NSEW]/g, '').substring(0, 2);
+        let pos = Math.round(minDist) + ' mi ' + dir + ' of ' + nearest.name + ' [' + nearest.code + ']';
+        if (speed) pos += ', ' + speed + ' mph' + (headDir ? ' ' + headDir : '');
+        td.textContent = pos;
+        td.style.color = '#374151';
       });
     })();
 
