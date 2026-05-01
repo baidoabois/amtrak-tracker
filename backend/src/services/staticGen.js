@@ -202,7 +202,20 @@ export function generateTrainHTML(train, generatedAt) {
       </div>
       ${train.stations?.length === 0
         ? '<p style="color:#9ca3af;font-size:.85rem">No station data available.</p>'
-        : `<div class="track"><div class="track-line"></div>${(train.stations || []).map((s, i, arr) => stationRow(s, arr[i - 1]?.tz)).join('')}</div>`
+        : (() => {
+            const stations = train.state === 'Completed'
+              ? (train.stations || []).map(s => {
+                  if (s.status !== 'scheduled') return s;
+                  // For terminus stations with no actual arrival data, infer from
+                  // scheduled time + train's overall delay so late/on-time is correct
+                  const inferredActual = (!s.actualArrival && s.scheduledArrival && train.delayMinutes > 0)
+                    ? new Date(new Date(s.scheduledArrival).getTime() + train.delayMinutes * 60000).toISOString()
+                    : s.actualArrival;
+                  return { ...s, status: 'arrived', actualArrival: inferredActual || s.estimatedArrival || s.scheduledArrival };
+                })
+              : (train.stations || []);
+            return `<div class="track"><div class="track-line"></div>${stations.map((s, i, arr) => stationRow(s, arr[i - 1]?.tz)).join('')}</div>`;
+          })()
       }
     </div>
   </div>

@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { fetchTrains } from './amtrak.js';
 import { sendEmail, buildDelayEmail, buildCancellationEmail } from './notify.js';
-import { writeTrainSnapshots } from './staticGen.js';
+import { writeTrainSnapshots, generateTrainHTML } from './staticGen.js';
 import User from '../models/User.js';
 import Train from '../models/Train.js';
 import TrainHistory from '../models/TrainHistory.js';
@@ -178,6 +178,39 @@ async function checkAndNotify(trains) {
   }
 }
 
+const SNAPSHOTS_DIR = path.join(__dirname, '../../public/snapshots');
+
+// Re-render snapshots for today's completed trains that are no longer in the live feed.
+// This ensures the "Complete" badge and fully-green station list are applied even after
+// the train disappears from the Amtrak API.
+async function regenerateCompletedSnapshots(activeNumbers) {
+  const today = getPSTDateString();
+  const completed = await TrainHistory.find({
+    date: today,
+    state: 'Completed',
+    trainNumber: { $nin: activeNumbers.map(String) },
+  }).lean();
+
+  if (!completed.length) return;
+
+  await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
+  await Promise.all(completed.map(async (rec) => {
+    const train = {
+      number: rec.number,
+      route: rec.route || '',
+      state: rec.state,
+      velocity: rec.velocity || 0,
+      delayMinutes: rec.delayMinutes || 0,
+      serviceDisrupted: rec.serviceDisrupted || false,
+      statusMsg: rec.statusMsg || '',
+      stations: rec.stations || [],
+    };
+    const html = generateTrainHTML(train, rec.lastUpdatedAt || new Date());
+    await fs.writeFile(path.join(SNAPSHOTS_DIR, `${train.number}.html`), html, 'utf8');
+  }));
+  console.log(`[Poller] Re-rendered ${completed.length} completed train snapshot(s)`);
+}
+
 async function poll() {
   try {
     console.log('[Poller] Fetching Amtrak data...');
@@ -191,6 +224,7 @@ async function poll() {
       writeTrainSnapshots(trains, lastUpdated),
     ]);
     await checkAndNotify(trains);
+    await regenerateCompletedSnapshots(trains.map(t => t.number));
   } catch (err) {
     console.error('[Poller] Error fetching trains:', err.message);
     // Keep serving the last good cache — do not clear cachedTrains
