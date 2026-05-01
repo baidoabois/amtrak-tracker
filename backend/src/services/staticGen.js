@@ -15,7 +15,7 @@ export const NAV_HTML = `
     </a>
     <div style="display:flex;align-items:center;gap:16px;font-size:.875rem" id="nav-links">
       <a href="/board"      style="color:#bfdbfe;text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Live Board</a>
-      <a href="/schedule"   style="color:#bfdbfe;text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Search</a>
+      <a href="/schedule"   style="color:#bfdbfe;text-decoration:none" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Schedule</a>
       <span id="nav-auth">
         <a href="/login"    style="color:#bfdbfe;text-decoration:none;margin-right:12px" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#bfdbfe'">Sign In</a>
         <a href="/register" style="background:#c0392b;color:#fff;padding:4px 12px;border-radius:4px;font-size:.875rem;text-decoration:none">Sign Up</a>

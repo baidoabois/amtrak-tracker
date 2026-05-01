@@ -20,7 +20,7 @@ export default function Navbar() {
 
         <div className="flex items-center gap-4 text-sm">
           <a href="/board" className="hover:text-blue-200 transition-colors">Live Board</a>
-          <Link to="/schedule" className="hover:text-blue-200 transition-colors">Search</Link>
+          <Link to="/schedule" className="hover:text-blue-200 transition-colors">Schedule</Link>
 
           {user ? (
             <>

@@ -208,7 +208,7 @@ export async function searchSchedule(fromCode, toCode, date) {
     });
   }
 
-  results.sort((a, b) => gtfsTimeToMins(a.scheduledDeparture) - gtfsTimeToMins(b.scheduledDeparture));
+  results.sort((a, b) => (a.departureISO || '').localeCompare(b.departureISO || ''));
   return results;
 }
 
