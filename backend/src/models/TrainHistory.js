@@ -36,6 +36,14 @@ const trainHistorySchema = new mongoose.Schema({
   lat: Number,
   lon: Number,
   stations: [stationEntrySchema],
+  positionHistory: [{
+    lat: Number,
+    lon: Number,
+    velocity: Number,
+    heading: String,
+    recordedAt: { type: Date, default: Date.now },
+    _id: false,
+  }],
   finalized: { type: Boolean, default: false }, // set true at midnight PST
   firstSeenAt: { type: Date, default: Date.now },
   lastUpdatedAt: { type: Date, default: Date.now },

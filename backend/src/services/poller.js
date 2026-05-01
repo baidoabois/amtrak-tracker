@@ -65,34 +65,40 @@ function buildStationPayload(stations) {
 
 async function saveTrainsToDB(trains) {
   // ── 1. Upsert latest state into `trains` collection ──────────────────────
-  const activeOps = trains.map((t) => ({
-    updateOne: {
-      filter: { trainNumber: String(t.number) },
-      update: {
-        $set: {
-          trainNumber: String(t.number),
-          number: t.number,
-          route: t.route,
-          heading: t.heading,
-          velocity: t.velocity,
-          lat: t.lat,
-          lon: t.lon,
-          state: t.state,
-          serviceDisrupted: t.serviceDisrupted,
-          statusMsg: t.statusMsg,
-          delayMinutes: t.delayMinutes,
-          stations: buildStationPayload(t.stations),
-          lastFetched: new Date(),
+  const now = new Date();
+  const posPoint = (t) => t.lat && t.lon ? { lat: t.lat, lon: t.lon, velocity: t.velocity, heading: t.heading, recordedAt: now } : null;
+
+  const activeOps = trains.map((t) => {
+    const pos = posPoint(t);
+    return {
+      updateOne: {
+        filter: { trainNumber: String(t.number) },
+        update: {
+          $set: {
+            trainNumber: String(t.number),
+            number: t.number,
+            route: t.route,
+            heading: t.heading,
+            velocity: t.velocity,
+            lat: t.lat,
+            lon: t.lon,
+            state: t.state,
+            serviceDisrupted: t.serviceDisrupted,
+            statusMsg: t.statusMsg,
+            delayMinutes: t.delayMinutes,
+            stations: buildStationPayload(t.stations),
+            lastFetched: now,
+          },
+          ...(pos ? { $push: { positionHistory: { $each: [pos], $slice: -720 } } } : {}),
         },
+        upsert: true,
       },
-      upsert: true,
-    },
-  }));
+    };
+  });
   await Train.bulkWrite(activeOps);
 
   // ── 2. Upsert today's history record in `trainhistory` collection ─────────
   const today = getPSTDateString();
-  const now = new Date();
 
   const historyOps = trains.map((t) => ({
     updateOne: {
@@ -113,9 +119,8 @@ async function saveTrainsToDB(trains) {
           stations: buildStationPayload(t.stations),
           lastUpdatedAt: now,
         },
-        // Track the worst delay seen today without overwriting if current is lower
+        ...(posPoint(t) ? { $push: { positionHistory: { $each: [posPoint(t)], $slice: -720 } } } : {}),
         $max: { peakDelayMinutes: t.delayMinutes ?? 0 },
-        // Only set firstSeenAt on insert
         $setOnInsert: {
           trainNumber: String(t.number),
           date: today,
@@ -208,7 +213,7 @@ async function regenerateCompletedSnapshots(activeNumbers) {
       statusMsg: rec.statusMsg || '',
       stations: rec.stations || [],
     };
-    const html = generateTrainHTML(train, rec.lastUpdatedAt || new Date());
+    const html = generateTrainHTML(train, rec.lastUpdatedAt || new Date(), rec.positionHistory || []);
     await fs.writeFile(path.join(SNAPSHOTS_DIR, `${train.number}.html`), html, 'utf8');
   }));
   console.log(`[Poller] Re-rendered ${completed.length} completed train snapshot(s)`);
@@ -222,10 +227,17 @@ async function poll() {
     lastUpdated = new Date().toISOString();
     await writePollStamp(Date.now());
     console.log(`[Poller] Got ${trains.length} trains. Saving to DB and generating snapshots...`);
-    await Promise.all([
-      saveTrainsToDB(trains),
-      writeTrainSnapshots(trains, lastUpdated),
-    ]);
+    await saveTrainsToDB(trains);
+
+    // Fetch today's position histories for snapshot generation
+    const today = getPSTDateString();
+    const histories = await TrainHistory.find(
+      { date: today, trainNumber: { $in: trains.map(t => String(t.number)) } },
+      { trainNumber: 1, positionHistory: 1 },
+    ).lean();
+    const posHistoryMap = Object.fromEntries(histories.map(h => [h.trainNumber, h.positionHistory || []]));
+
+    await writeTrainSnapshots(trains, lastUpdated, posHistoryMap);
     await checkAndNotify(trains);
     await regenerateCompletedSnapshots(trains.map(t => t.number));
   } catch (err) {

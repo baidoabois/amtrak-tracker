@@ -34,6 +34,14 @@ const trainSchema = new mongoose.Schema({
   statusMsg: String,
   delayMinutes: Number,
   stations: [stationEntrySchema],
+  positionHistory: [{
+    lat: Number,
+    lon: Number,
+    velocity: Number,
+    heading: String,
+    recordedAt: { type: Date, default: Date.now },
+    _id: false,
+  }],
   lastFetched: { type: Date, default: Date.now },
 }, { timestamps: true });
 

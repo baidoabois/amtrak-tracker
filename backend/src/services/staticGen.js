@@ -124,7 +124,7 @@ function statusBadge(train) {
   return `<span class="badge badge-green">✓ On Time</span>`;
 }
 
-export function generateTrainHTML(train, generatedAt) {
+export function generateTrainHTML(train, generatedAt, positionHistory = []) {
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -132,6 +132,8 @@ export function generateTrainHTML(train, generatedAt) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Train ${train.number} — ${train.route} | Amtrak Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f9fafb;color:#111827}
@@ -169,6 +171,8 @@ export function generateTrainHTML(train, generatedAt) {
     .late{color:#dc2626;font-weight:700}
     .early{color:#16a34a}
     .generated{font-size:.75rem;color:#9ca3af;text-align:center;padding:16px 0}
+    #admin-panel{display:none}
+    #pos-map{height:340px;border-radius:10px;margin-top:12px}
   </style>
 </head>
 <body>
@@ -189,6 +193,17 @@ export function generateTrainHTML(train, generatedAt) {
           <div class="meta">Updated: <strong id="gen-time">—</strong></div>
           <div class="meta" style="margin-top:8px;font-size:.7rem;color:#d1d5db">Page refreshes every 2 min</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Train status summary — visible to all users -->
+    <div class="card" id="status-card">
+      <h2 style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:12px">Train Status</h2>
+      <div style="display:grid;gap:6px;font-size:.875rem">
+        <div><span style="color:#9ca3af;min-width:90px;display:inline-block">Origin</span> <span id="st-origin">—</span></div>
+        <div><span style="color:#9ca3af;min-width:90px;display:inline-block">Destination</span> <span id="st-dest">—</span></div>
+        <div><span style="color:#9ca3af;min-width:90px;display:inline-block">Status</span> <span id="st-status">—</span></div>
+        <div id="st-pos-row" style="display:none"><span style="color:#9ca3af;min-width:90px;display:inline-block">Position</span> <span id="st-pos">—</span></div>
       </div>
     </div>
 
@@ -220,9 +235,101 @@ export function generateTrainHTML(train, generatedAt) {
     </div>
   </div>
 
+  <!-- Admin-only position history panel — hidden until auth check confirms admin role -->
+  <div class="container" id="admin-panel">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <h2 style="font-size:1rem;font-weight:600;color:#374151">Position History <span style="font-size:.75rem;font-weight:400;color:#9ca3af">(Admin only)</span></h2>
+        <span style="font-size:.75rem;color:#9ca3af" id="pos-count"></span>
+      </div>
+      <p style="font-size:.75rem;color:#9ca3af;margin-bottom:8px">Recorded every 2 minutes. Red = delayed, blue = on time.</p>
+      <div id="pos-map"></div>
+    </div>
+  </div>
+
   <div class="generated">Checked: <span id="check-time"></span> &mdash; auto-refreshes every 2 minutes</div>
 
   <script>
+    const positionHistory = ${JSON.stringify(positionHistory.map(p => ({ lat: p.lat, lon: p.lon, v: Math.round(p.velocity || 0), t: p.recordedAt })))};
+    const trainDelayMins = ${train.delayMinutes || 0};
+    const trainLat = ${train.lat || 0};
+    const trainLon = ${train.lon || 0};
+    const trainHeading = ${JSON.stringify(train.heading || '')};
+    const trainState = ${JSON.stringify(train.state || '')};
+    const stationCoords = ${JSON.stringify((train.stations || []).filter(s => s.station && s.station.lat && s.station.lon).map(s => ({
+      code: s.code,
+      name: s.station.name || s.code,
+      lat: s.station.lat,
+      lon: s.station.lon,
+    })))};
+
+    // ── Train Status card ────────────────────────────────────────────────────
+    (function() {
+      const TZ_MAP2 = { P:'America/Los_Angeles', M:'America/Denver', C:'America/Chicago', E:'America/New_York' };
+      const TZ_LABEL = { P:'PT', M:'MT', C:'CT', E:'ET' };
+
+      function fmtStatusTime(iso, tz) {
+        if (!iso) return '';
+        const t = new Date(iso).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', timeZone: TZ_MAP2[tz] || TZ_MAP2.P });
+        const d = new Date(iso).toLocaleDateString('en-US', { month:'numeric', day:'numeric', timeZone: TZ_MAP2[tz] || TZ_MAP2.P });
+        return t + ' ' + (TZ_LABEL[tz] || 'PT') + ' ' + d;
+      }
+
+      const stations = ${JSON.stringify((train.stations || []).map(s => ({
+        code: s.code,
+        name: s.station ? s.station.name : s.code,
+        tz: s.tz,
+        scheduledDeparture: s.scheduledDeparture,
+        scheduledArrival: s.scheduledArrival,
+      })))};
+
+      if (stations.length) {
+        const orig = stations[0];
+        const dest = stations[stations.length - 1];
+        document.getElementById('st-origin').textContent =
+          (orig.name || orig.code) + (orig.scheduledDeparture ? ', sch. departure ' + fmtStatusTime(orig.scheduledDeparture, orig.tz) : '');
+        document.getElementById('st-dest').textContent = dest.name || dest.code;
+      }
+
+      const stateLabel = trainState === 'Completed' ? 'Completed' : trainState === 'Active' ? 'Active' : trainState || '—';
+      document.getElementById('st-status').textContent = stateLabel;
+
+      // Current position: distance + direction from nearest station
+      if (trainLat && trainLon && stationCoords.length && trainState === 'Active') {
+        function toRad(d) { return d * Math.PI / 180; }
+        function distMi(lat1, lon1, lat2, lon2) {
+          const R = 3958.8;
+          const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+          const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+          return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+        function bearing(lat1, lon1, lat2, lon2) {
+          const dLon = toRad(lon2 - lon1);
+          const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+          const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+          const deg = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+          const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+          return dirs[Math.round(deg / 45) % 8];
+        }
+
+        let nearest = null, minDist = Infinity;
+        stationCoords.forEach(s => {
+          const d = distMi(trainLat, trainLon, s.lat, s.lon);
+          if (d < minDist) { minDist = d; nearest = s; }
+        });
+
+        if (nearest) {
+          const dir = bearing(nearest.lat, nearest.lon, trainLat, trainLon);
+          const speed = ${Math.round(train.velocity || 0)};
+          const headingDir = trainHeading ? trainHeading.replace(/[^NSEW]/g,'').substring(0,2) : '';
+          const posText = Math.round(minDist) + ' mi ' + dir + ' of ' + nearest.name + ' [' + nearest.code + ']'
+            + (speed ? ', ' + speed + ' mph' + (headingDir ? ' ' + headingDir : '') : '');
+          document.getElementById('st-pos').textContent = posText;
+          document.getElementById('st-pos-row').style.display = '';
+        }
+      }
+    })();
+
     (function() {
       const TZ_MAP = { P:'America/Los_Angeles', M:'America/Denver', C:'America/Chicago', E:'America/New_York' };
 
@@ -262,17 +369,60 @@ export function generateTrainHTML(train, generatedAt) {
       document.getElementById('gen-time').textContent  = fmt(snap);
       document.getElementById('check-time').textContent = fmt(new Date());
     })();
+
+    // Show admin panel + map if the logged-in user is an admin
+    (function() {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.user || data.user.role !== 'admin') return;
+          document.getElementById('admin-panel').style.display = 'block';
+          if (!positionHistory.length) {
+            document.getElementById('pos-count').textContent = 'No position data recorded yet';
+            return;
+          }
+          document.getElementById('pos-count').textContent = positionHistory.length + ' points';
+
+          const map = L.map('pos-map').setView([positionHistory[0].lat, positionHistory[0].lon], 8);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap', maxZoom: 18,
+          }).addTo(map);
+
+          // Draw path line
+          const coords = positionHistory.map(p => [p.lat, p.lon]);
+          L.polyline(coords, { color: '#003876', weight: 3, opacity: 0.7 }).addTo(map);
+
+          // Mark each point as a small circle, red if delayed
+          positionHistory.forEach((p, i) => {
+            const isLast = i === positionHistory.length - 1;
+            const t = p.t ? new Date(p.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+            L.circleMarker([p.lat, p.lon], {
+              radius: isLast ? 8 : 4,
+              color: isLast ? '#003876' : '#6b7280',
+              weight: isLast ? 2 : 1,
+              fillColor: isLast ? (trainDelayMins >= 15 ? '#dc2626' : '#003876') : '#9ca3af',
+              fillOpacity: isLast ? 1 : 0.6,
+            }).addTo(map).bindPopup((isLast ? '<b>Current</b><br>' : '') + t + (p.v ? '<br>' + p.v + ' mph' : ''));
+          });
+
+          map.fitBounds(L.polyline(coords).getBounds(), { padding: [30, 30] });
+        })
+        .catch(() => {});
+    })();
+
     setTimeout(() => location.reload(), 120000);
   </script>
 </body>
 </html>`;
 }
 
-export async function writeTrainSnapshots(trains, generatedAt) {
+export async function writeTrainSnapshots(trains, generatedAt, posHistoryMap = {}) {
   await fs.mkdir(SNAPSHOTS_DIR, { recursive: true });
   await Promise.all([
     ...trains.map((train) => {
-      const html = generateTrainHTML(train, generatedAt);
+      const html = generateTrainHTML(train, generatedAt, posHistoryMap[String(train.number)] || []);
       return fs.writeFile(path.join(SNAPSHOTS_DIR, `${train.number}.html`), html, 'utf8');
     }),
     fs.writeFile(
