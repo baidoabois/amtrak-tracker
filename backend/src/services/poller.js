@@ -184,12 +184,15 @@ const SNAPSHOTS_DIR = path.join(__dirname, '../../public/snapshots');
 // This ensures the "Complete" badge and fully-green station list are applied even after
 // the train disappears from the Amtrak API.
 async function regenerateCompletedSnapshots(activeNumbers) {
-  const today = getPSTDateString();
-  const completed = await TrainHistory.find({
-    date: today,
-    state: 'Completed',
-    trainNumber: { $nin: activeNumbers.map(String) },
-  }).lean();
+  // Look back 3 days so trains from recent days get re-rendered even after finalization
+  const cutoff = getPSTDateString(new Date(Date.now() - 14 * 24 * 60 * 60 * 1000));
+  // Find the most recent completed record per train number within the window
+  const completed = await TrainHistory.aggregate([
+    { $match: { state: 'Completed', date: { $gte: cutoff }, trainNumber: { $nin: activeNumbers.map(String) } } },
+    { $sort: { date: -1 } },
+    { $group: { _id: '$trainNumber', doc: { $first: '$$ROOT' } } },
+    { $replaceRoot: { newRoot: '$doc' } },
+  ]);
 
   if (!completed.length) return;
 
